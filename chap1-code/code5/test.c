@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-
-int test(int a);
+#include "head.h"
 
 int main(int argc, char* argv[]) {
     int a, b;
@@ -26,12 +25,4 @@ int main(int argc, char* argv[]) {
     
     printf("THE END !!!\n");
     return 0;
-}
-
-int test(int a) {
-    int num = 0;
-    for (int i = 0; i < a; ++i) {
-        num += i;
-    }
-    return num;
 }
