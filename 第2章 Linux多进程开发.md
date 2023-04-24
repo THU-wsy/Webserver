@@ -246,7 +246,7 @@ pid_t waitpid(pid_t pid, int *wstatus, int options);
 - 通过管道传递的数据是顺序的，从管道中读取出来的字节的顺序和它们被写入管道的顺序是完全一样的。
 - 在管道中的数据的传递方向是单向的，一端用于写入，一端用于读取，管道是半双工的。
 - 从管道读数据是一次性操作，数据一旦被读走，它就从管道中被抛弃，释放空间以便写更多的数据，所以在管道中无法使用lseek()来随机地访问数据。
-- ==匿名管道只能在具有公共祖先的进程==(父进程与子进程，或者两个兄弟进程，或者具有亲缘关系的进程)之间使用，这是因为只有fork()出来的进程，它们相同的文件描述符才会指向相同的匿名管道，所以必须在父进程调用fork()之前创建匿名管道。
+- ==匿名管道只能在具有公共祖先的进程==(父进程与子进程，或者两个兄弟进程，或者具有亲缘关系的进程)之间使用，这是因为只有fork()出来的进程，它们相同的文件描述符才会指向相同的匿名管道，所以==必须在父进程调用fork()之前创建匿名管道==。
 
 ![](zzimages/20230423212622.png)
 
@@ -267,7 +267,6 @@ int pipe(int pipefd[2]);
 - 参数：int pipefd[2]这个数组是一个传出参数，pipefd[0]对应管道的读端，pipefd[1]对应管道的写端。
 - 返回值：成功返回0，失败返回-1
 
-注意：管道默认是阻塞的，即如果管道中没有数据，则read阻塞，而如果管道满了，则write阻塞。
 
 ```shell
 ulimit -a
@@ -283,4 +282,124 @@ long fpathconf(int fd, int name);
 
 ```c
 long size = fpathconf(pipefd[0], _PC_PIPE_BUF);
+```
+
+一般来说，对于一个匿名管道，父进程只使用其一端(例如读端)，则在父进程中最好关闭写端，同样，子进程中最好关闭读端，以防止发生子进程写完后又自己再从管道中读回来的情况。
+
+默认为阻塞的管道(匿名管道/有名管道)的读写特点：
+- 如果管道写端的引用计数为0，那么管道中剩余的数据被读取完后，进程再次调用read()会返回0，就像读到文件末尾一样。
+- 如果管道写端的引用计数大于0，那么管道中剩余的数据被读取完后，进程再次调用read()会阻塞，直到管道中有数据可以读了才读取数据并返回。
+- 如果管道读端的引用计数为0，那么进程调用write()写数据时会收到一个信号SIGPIPE，通常会导致进程异常终止。
+- 如果管道读端的引用计数大于0，那么当管道被写满时，进程再调用write()会阻塞，直到管道中有空位置才能再次写入数据然后返回。
+
+可以使用fcntl()来设置管道非阻塞：
+```c
+//设置管道非阻塞
+int flags = fcntl(fd[0], F_GETFL); //获取原来的flag
+flags |= O_NONBLOCK; //修改flag的值，设置非阻塞
+fcntl(fd[0], F_SETFL, flags); //设置新的flag
+```
+
+## 5.2 有名管道
+
+匿名管道由于没有名字，只能用于具有亲缘关系的进程间通信。为了克服这个缺点，提出了有名管道(FIFO)，也称为命名管道、FIFO文件。
+
+FIFO不同于匿名管道，它提供了一个路径名与之关联，以FIFO的文件形式存在于文件系统中，并且其打开方式与打开一个普通文件是一样的。所以即使是不相关的进程，只要可以访问该路径，就能够彼此通过FIFO相互通信。
+
+一旦打开了FIFO，就能在它上面使用与操作匿名管道和其他文件的系统调用一样的I/O系统调用(如read()、write()、close())。与管道一样，FIFO也有一个写入端和读取端，并且从管道中读取数据的顺序与写入的顺序是一样的，所以FIFO的名称也由此而来(先进先出)。
+
+有名管道(FIFO)和匿名管道(pipe)有一些特点是相同的，不同之处在于：
+- FIFO在文件系统中作为一个特殊文件存在，而FIFO中的内容却存放在内存中。
+- 当使用FIFO的进程退出后，FIFO文件将继续保存在文件系统中以便以后使用。
+- FIFO有名字，不相关的进程可以通过打开有名管道进行通信。
+
+通过命令创建有名管道：
+```shell
+mkfifo 名字
+```
+
+通过标准C库函数创建有名管道：
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+
+int mkfifo(const char *pathname, mode_t mode);
+```
+- 参数：pathname是管道名称的路径；mode是文件的权限，与open()的mode是一样的
+- 返回值：成功返回0，失败返回-1
+
+注意：一个只读打开有名管道的进程会阻塞，直到另一个进程打开该管道的写端；同样地，一个只写打开有名管道的进程也会阻塞，直到另一个进程打开该管道的读端。
+
+# 6. 内存映射
+
+内存映射(Memory-mapped I/O)是将磁盘文件的数据映射到内存，用户通过修改内存就能修改磁盘文件。
+
+![](zzimages/20230424203836.png)
+
+```c
+#include <sys/mman.h>
+
+void *mmap(void *addr, size_t length, int prot, int flags, 
+            int fd, off_t offset);
+int munmap(void *addr, size_t length);
+```
+- 作用：将一个文件的数据映射到内存中
+- 参数：
+  - addr是映射到内存的起始地址，一般使用NULL，意味着由内核指定起始地址
+  - length是要映射的数据长度，这个值不能为0，一般使用文件的长度(使用stat或lseek)
+  - prot是对申请的内存映射区的操作权限(要操作映射内存，必须要有读权限，一般就使用PROT_READ | PROT_WRITE)
+    - PROT_EXEC：可执行的权限
+    - PROT_READ：读权限
+    - PROT_WRITE：写权限
+    - PROT_NONE：没有权限
+  - flags：
+    - MAP_SHARED：映射区的数据会自动和磁盘文件进行同步，要进行进程间通信必须要设置这个选项
+    - MAP_PRIVATE：不同步，即修改映射区的数据并不会修改磁盘上原来的文件，而是会重新创建一个新的文件(copy-on-write)
+  - fd是要映射的文件的文件描述符，通过open得到，注意文件的大小不能为0，且open指定的权限不能与上述prot参数有冲突
+  - offset：偏移量，一般不使用(因为必须指定为4K的整数倍)，所以一般就传入0
+- 返回值：返回创建的内存的首地址；失败则返回MAP_FAILED，即(void *) -1
+
+
+```c
+#include <sys/mman.h>
+
+int munmap(void *addr, size_t length);
+```
+- 作用：释放内存映射
+- 参数：addr是要释放的内存的首地址；length是要释放的内存的大小，要和mmap函数中的length参数的值相同
+
+以下是使用内存映射进行进程间通信的示例(事实上，没有关系的进程也可以通过内存映射来通信)：
+```c
+#include <stdio.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+
+int main() {
+    int fd = open("file.txt", O_RDWR);
+    int size = lseek(fd, 0, SEEK_END);
+
+    void* ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (ptr == MAP_FAILED) {
+        perror("mmap");
+        exit(0);
+    }
+
+    pid_t pid = fork();
+    if (pid > 0) {
+        wait(NULL);
+        char buf[64];
+        strcpy(buf, (char*) ptr);
+        printf("read data : %s\n", buf);
+    } else if (pid == 0) {
+        strcpy((char*) ptr, "hello, parent!!");
+    }
+    munmap(ptr, size);
+    return 0;
+}
 ```

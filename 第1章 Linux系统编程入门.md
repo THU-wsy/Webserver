@@ -263,8 +263,275 @@ GDB使用帮助：
 - set var 变量名=变量值
 - until (跳出循环)
 
+# 6. Linux系统I/O函数
 
+```c
+int open(const char* pathname, int flags);
+int open(const char* pathname, int flags, mode_t mode);
+int close(int fd);
+ssize_t read(int fd, void* buf, size_t count);
+ssize_t write(int fd, const void* buf, size_t count);
+off_t lseek(int fd, off_t offset, int whence);
+int stat(const char* pathname, struct stat* statbuf);
+int lstat(const char* pathname, struct stat* statbuf);
+```
 
+## 6.1 打开文件
 
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
+//打开一个已经存在的文件
+int open(const char* pathname, int flags);
+```
+- 参数：pathname是要打开的文件路径；flags是对文件的操作权限设置以及其他的设置，==必须包含以下三个操作权限之一==，==O_RDONLY、O_WRONLY、O_RDWR==(只读、只写、读写，这三个设置是互斥的)，而其他设置是可选项，例如O_CREAT表示如果文件不存在则创建新文件。
+- 返回值：返回一个新的文件描述符，它是一个整数，是每个进程私有的，在UNIX系统中用于访问文件，注意每个正在运行的进程都默认打开3个文件：==标准输入、标准输出、标准错误，分别由文件描述符0、1、2表示==，所以第一次调用open打开文件时会返回3。如果调用失败则返回-1，并设置errno。
+
+errno属于Linux系统函数库，是一个全局变量，记录最近的错误号。我们可以用perror来打印errno对应的错误描述信息：
+```c
+#include <stdio.h>
+void perror(const char* s);
+//s参数是用户的描述信息，例如"warn"
+//于是最终输出内容为 warn:xxx(xxx是实际的错误打印信息)
+```
+
+示例：
+```c
+int main() {
+    int fd = open("a.txt", O_RDONLY);
+    if (fd == -1) {
+        perror("warn");
+    }
+    close(fd);
+    return 0;
+}
+```
+如果不存在a.txt文件，则会打印：
+```
+warn: No such file or directory
+```
+
+## 6.2 创建文件
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+//创建文件一般使用open系统调用并传入O_CREAT标志
+int open(const char* pathname, int flags, mode_t mode);
+```
+- 参数mode是一个八进制的数，表示创建出的新文件的操作权限，比如0777就表示rwxrwxrwx，注意实际创建出来的操作权限可能并不是0777(因为系统会设置掩码使得操作权限更合理，例如让其他组的w权限置为0)
+
+示例：
+```c
+int fd = open("a.txt", O_CREAT | O_RDWR, 0777);
+```
+
+## 6.3 关闭文件
+
+```c
+#include <unistd.h>
+
+int close(int fd);
+```
+
+## 6.4 读写文件
+
+```c
+#include <unistd.h>
+
+ssize_t read(int fd, void* buf, size_t count);
+```
+- 参数：fd是文件描述符；buf是读取数据后要将数据存放的地方，即数组的地址；count是指定的数组大小
+- 返回值：大于0表示返回实际的读取到的字节数，等于0表示文件已经读取完了；读取失败则返回-1，并设置errno
+
+```c
+#include <unistd.h>
+
+ssize_t write(int fd, const void* buf, size_t count);
+```
+- 参数：fd是文件描述符；buf是一个数组地址，其中的数据要写入磁盘；count是要写的数据的实际大小
+- 返回值：成功则返回实际写入的字节数；失败则返回-1，并设置errno
+- 出于性能的原因，调用write()后文件系统会将这些写入在内存中缓冲一段时间后再写入磁盘，但有些应用程序可能要求立即写入磁盘保证安全性(如数据库管理系统)，为此需要系统调用fsync(int fd)，它的参数是一个文件描述符，调用后文件系统会强制将所有该文件的脏数据(即尚未写入的数据)写入磁盘。
+
+```c
+#include <sys/types.h>
+#include <unistd.h>
+
+off_t lseek(int fd, off_t offset, int whence);
+```
+- 参数：fd是文件描述符；offset是偏移量；whence有三个值，SEEK_SET(设置文件指针的偏移量为offset)、SEEK_CUR(设置偏移量为当前位置+offset)、SEEK_END(设置偏移量为文件大小+offset)
+- 返回值：返回文件指针的位置
+
+lseek主要有以下四个作用：
+1. 移动文件指针到文件头
+    ```c
+    lseek(fd, 0, SEEK_SET);
+    ```
+2. 获取当前文件指针的位置
+    ```c
+    lseek(fd, 0, SEEK_CUR);
+    ```
+3. 获取文件长度
+    ```c
+    lseek(fd, 0, SEEK_END);
+    ```
+4. 拓展文件长度(lseek完后需要写入一次数据才能真正地拓展)
+    ```c
+    lseek(fd, 100, SEEK_END);
+    ```
+
+```c
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+int stat(const char* pathname, struct stat* statbuf);
+int lstat(const char* pathname, struct stat* statbuf);
+```
+- 参数：pathname是要操作的文件的路径；statbuf是一个结构体，作为传出参数，用于保存获取到的文件的信息
+- 返回值：成功则返回0；失败则返回-1，并设置errno
+- 作用：stat用于获取一个文件相关的一些信息；lstat用于获取一个软链接的信息(而不是软链接所指向的文件的信息)
+
+![](zzimages/20230424163846.png)
+
+![](zzimages/20230424164129.png)
+
+## 6.5 文件属性操作函数
+
+```c
+#include <unistd.h>
+
+int access(const char* pathname, int mode);
+```
+- 作用：判断某个文件是否有某个权限，或者判断文件是否存在
+- 参数：pathname是文件路径；mode的值有F_OK(文件是否存在)、R_OK(是否有读权限)、W_OK(是否有写权限)、X_OK(是否有执行权限)
+- 返回值：成功则返回0；失败则返回-1，并设置errno
+
+```c
+#include<sys/stat.h>
+
+int chmod(const char* filename, mode_t mode);
+```
+- 作用：修改文件的权限
+- 参数：pathname是文件路径；mode是需要修改的权限值，是一个八进制的数
+- 返回值：成功则返回0；失败则返回-1，并设置errno
+
+```c
+#include <unistd.h>
+
+int chown(const char* pathname, uid_t owner, gid_t group);
+```
+- 作用：修改文件的所有者和所在组
+
+```c
+#include <unistd.h>
+#include <sys/types.h>
+
+int truncate(const char* path, off_t length);
+```
+- 作用：缩减或者扩展文件的尺寸至指定的大小
+- 参数：path是文件路径；length是需要最终文件变成的大小
+- 返回值：成功则返回0；失败则返回-1，并设置errno
+
+## 6.6 目录操作函数
+
+```c
+#include <sys/stat.h>
+#include <sys/types.h>
+
+int mkdir(const char *pathname, mode_t mode);
+```
+- 作用：创建一个目录
+- 参数：pathname是创建的目录的路径；mode是权限，八进制数
+- 返回值：成功返回0；失败返回-1，并设置errno
+
+```c
+#include <unistd.h>
+
+int rmdir(const char *pathname);
+```
+- 作用：删除一个空目录
+
+```c
+#include <stdio.h>
+
+int rename(const char *oldpath, const char *newpath);
+```
+- 作用：目录重命名
+
+```c
+#include <unistd.h>
+
+int chdir(const char *path);
+```
+- 作用：修改进程的工作目录
+
+```c
+#include <unistd.h>
+
+char *getcwd(char *buf, size_t size);
+```
+- 作用：获取当前工作目录
+- 参数：buf是要存储的路径(传出参数)，指向一个数组；size是数组的大小
+- 返回值：返回值指向一块内存，就是第一个参数
+
+以下的目录遍历函数是在标准C库中的。
+```c
+#include <sys/types.h>
+#include <dirent.h>
+
+DIR *opendir(const char *name);
+```
+- 作用：打开一个目录
+- 参数：name是要打开的目录的名称
+- 返回值：DIR\*，目录流；失败则返回NULL
+
+```c
+#include <dirent.h>
+
+struct dirent *readdir(DIR *dirp);
+```
+- 作用：读取目录中的数据
+- 参数：dirp是opendir的返回值
+- 返回值：struct dirent代表读取到的文件的信息；若读取到目录流的末尾或者失败，则返回NULL
+
+```c
+#include <sys/types.h>
+#include <dirent.h>
+
+int closedir(DIR *dirp);
+```
+- 作用：关闭目录
+
+## 6.7 其他函数
+
+```c
+#include <unistd.h>
+
+int dup(int oldfd);
+```
+- 作用：复制得到一个新的文件描述符(与原文件描述符指向同一个文件)，该新的文件描述符是从空闲的文件描述符中选择最小的一个。
+
+```c
+#include <unistd.h>
+
+int dup2(int oldfd, int newfd);
+```
+- 作用：重定向文件描述符，例如oldfd指向a.txt，newfd指向b.txt，则调用函数成功后，newfd和b.txt做close，且newfd指向a.txt。注意oldfd必须是一个有效的文件描述符。如果oldfd和newfd值相同，相当于什么都没做。
+- 返回值：与newfd相同
+
+```c
+#include <unistd.h>
+#include <fcntl.h>
+
+int fcntl(int fd, int cmd, ... /* arg */ );
+```
+- 参数：fd表示需要操作的文件描述符；cmd表示对文件描述符进行如何操作。
+    - F_DUPFD：表示复制文件描述符(复制第一个参数fd，得到一个新的文件描述符作为返回值)
+    - F_GETFL：表示获取指定的文件描述符文件状态flag(获取的flag和我们通过open函数传递的flag是相同的)
+    - F_SETFL：表示设置文件描述符文件状态flag，必选项：O_RDONLY、O_WRONLY、O_RDWR不可以被修改，可选项：O_APPEND(追加数据)、O_NONBLOCK(设置成非阻塞)
 
