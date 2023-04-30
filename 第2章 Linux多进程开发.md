@@ -568,7 +568,7 @@ sighandler_t signal(int signum, sighandler_t handler);
 
 信号的未决是一种状态，指的是从信号的产生到信号被处理前的这一段时间。信号的阻塞是一个开关动作，指的是阻止信号被处理，但不是阻止信号的产生，即让系统暂时保留信号留待以后发送，一般来说信号的阻塞只是暂时的，只是为了防止信号打断敏感的操作。
 
-例如用户通过键盘输入Ctrl + C产生了2号信号SIGINT，在该信号被处理之前，内核维护的未决信号集中将2号标志位置1，表示2号信号是未决状态。在处理该信号之前，需要与阻塞信号集对比，如果阻塞信号集的2号位也为1，则表示该信号被阻塞，于是该信号会一直处于未决状态直到阻塞解除。(阻塞信号集默认为全0，即不阻塞任何信号，如果想要阻塞某些信号，需要用户调用系统API)。
+例如用户通过键盘输入Ctrl + C产生了2号信号SIGINT，在该信号被处理之前，内核维护的未决信号集中将2号标志位置1，表示2号信号是未决状态。在处理该信号之前，需要与阻塞信号集对比，如果阻塞信号集的2号位也为1，则表示该信号被阻塞，于是该信号会一直处于未决状态直到阻塞解除。(阻塞信号集默认为全0，即不阻塞任何信号，如果想要阻塞某些信号，需要用户调用系统API)。如果阻塞期间又产生了多个SIGINT信号，则这些信号会被丢弃(实时信号除外)，因为未决信号集标志位只能记录1或0，不能记录该信号的数量。
 
 ```c
 #include <signal.h>
@@ -589,4 +589,66 @@ int sigismember(const sigset_t *set, int signum);
   - set是需要操作的信号集
   - signum是需要操作的信号编号
 - 返回值：前4个函数成功返回0，失败返回-1；sigismember与此不同，它返回1表示标志位是1，返回0表示标志位是0，返回-1表示调用失败。
+
+```c
+#include <signal.h>
+
+int sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+```
+- 作用：将自定义信号集中的数据设置到内核的阻塞信号集中
+- 参数：
+  - how：如何对内核阻塞信号集进行处理
+    - SIG_BLOCK：将set中阻塞的信号添加到内核阻塞信号集mask中，即相当于 mask |= set
+    - SIG_UNBLOCK：将set中标志位为1的信号解除，即相当于 mask &= ~set
+    - SIG_SETMASK：用set覆盖内核阻塞信号集mask
+  - set：用户自定义的信号集
+  - oldset：保存设置之前的内核阻塞信号集，一般不使用，传入NULL即可
+- 返回值：成功返回0；失败返回-1，并设置errno(EFAULT或EINVAL)
+
+```c
+#include <signal.h>
+
+int sigpending(sigset_t *set);
+```
+- 作用：获取内核中的未决信号集
+- 参数：set是传出参数，用于保存内核中的未决信号集
+- 返回值：成功返回0，失败返回-1
+
+## 7.7 信号捕捉函数sigaction()
+
+```c
+#include <signal.h>
+
+int sigaction(int signum, const struct sigaction *act,
+              struct sigaction *oldact);
+```
+- 作用：检查或改变信号的处理方式
+- 参数：signum是要捕捉的信号编号；act是捕捉到信号之后的处理动作；oldact是上一次对信号捕捉的相关设置，一般不使用，传递NULL即可
+- 返回值：成功返回0，失败返回-1
+
+```c
+struct sigaction {
+    //函数指针，指向的是信号处理函数
+    void     (*sa_handler)(int);
+    //不常用
+    void     (*sa_sigaction)(int, siginfo_t *, void *);
+    //临时阻塞信号集，在信号捕捉函数执行过程中临时阻塞某些信号，执行完毕后不再阻塞
+    sigset_t   sa_mask;
+    //0表示使用sa_handler函数处理信号，SA_SIGINFO表示使用sa_sigaction处理信号
+    int        sa_flags;
+    //已被废弃
+    void     (*sa_restorer)(void);
+};
+```
+
+![](zzimages/20230430204011.png)
+
+## 7.8 信号SIGCHLD
+
+SIGCHLD信号产生的时机：
+- 子进程终止时
+- 子进程接收到SIGSTOP信号停止时
+- 子进程处在停止态，接收到SIGCONT后唤醒时
+
+以上三种情况都会给父进程发送SIGCHLD信号，父进程默认会忽略该信号。可以设置对信号SIGCHLD的处理方式来处理僵尸进程。
 
