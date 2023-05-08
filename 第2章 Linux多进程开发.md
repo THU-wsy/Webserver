@@ -785,6 +785,7 @@ pid_t getpgrp(void);
 pid_t getpgid(pid_t pid);
 int setpgid(pid_t pid, pid_t pgid);
 pid_t getsid(pid_t pid);
+pid_t setsid(void);
 ```
 
 ## 9.4 守护进程
@@ -796,5 +797,14 @@ pid_t getsid(pid_t pid);
 - 它在后台运行并且不拥有控制终端。没有控制终端确保了内核永远不会为守护进程自动生成任何控制信号以及终端相关的信号(如SIGINT、SIGQUIT)。
 
 Linux的大多数服务器就是用守护进程实现的。比如Internet服务器inetd，Web服务器httpd等。
+
+守护进程的创建步骤：
+- 执行一个fork()，之后父进程退出，子进程继续执行
+- 子进程调用setsid()开启一个新会话
+- 清除进程的umask以确保当守护进程创建文件和目录时拥有所需的权限
+- 修改进程的当前工作目录，通常会改为根目录(/)
+- 关闭守护进程从其父进程继承而来的所有打开着的文件描述符
+- 在关闭了文件描述符0、1、2之后，守护进程通常会打开/dev/null并使用dup2()使所有这些描述符指向这个设备
+- 核心业务逻辑
 
 
