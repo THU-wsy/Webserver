@@ -39,7 +39,7 @@ int main() {
     umask(022);
 
     // 4. 更改工作目录
-    chdir("/home/wsy/Webserver/chap2-code/code9/");
+    chdir("/home/wsy/Webserver/chap2-code/code10/");
 
     // 5. 关闭、重定向文件描述符
     int fd = open("/dev/null", O_RDWR);
