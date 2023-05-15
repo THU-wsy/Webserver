@@ -76,4 +76,48 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
 ```
 - 作用：分别是初始化线程属性变量、释放线程属性的资源、获取线程分离的状态属性、设置线程分离的状态属性
 
+# 4. 互斥锁
+
+## 4.1 互斥量API
+
+```c
+pthread_mutex_t //互斥量的类型
+```
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_init(pthread_mutex_t *restrict mutex,
+           const pthread_mutexattr_t *restrict attr);
+```
+- 作用：初始化互斥量
+- 参数：mutex是要初始化的互斥量变量；attr是互斥量相关的属性，一般传入默认参数NULL即可(restrict是C语言的修饰符，被修饰的指针不能由另一个指针进行操作)
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_destroy(pthread_mutex_t *mutex);
+```
+- 作用：释放互斥量的资源
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_lock(pthread_mutex_t *mutex);
+```
+- 作用：加锁。该函数是阻塞的(如果有一个线程已经对该互斥量加锁了，那么其他线程调用该函数将阻塞等待)。
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_trylock(pthread_mutex_t *mutex);
+```
+- 作用：尝试加锁，如果加锁失败则直接返回
+
+```c
+#include <pthread.h>
+
+int pthread_mutex_unlock(pthread_mutex_t *mutex);
+```
+- 作用：解锁
 

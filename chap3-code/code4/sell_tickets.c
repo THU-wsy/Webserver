@@ -7,17 +7,28 @@
 #include <unistd.h>
 
 int tickets = 100;
+pthread_mutex_t mutex;
 
 void* sellticket(void* arg) {
-    while (tickets > 0) {
-        usleep(5000);
-        printf("%ld窗口正在卖第%d张门票\n", pthread_self(), tickets);
-        tickets--;
+    
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        if (tickets > 0) {
+            printf("%ld窗口正在卖第%d张门票\n", pthread_self(), tickets);
+            tickets--;
+        } else {
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+        pthread_mutex_unlock(&mutex);
     }
+    
     return NULL;
 }
 
 int main() {
+
+    pthread_mutex_init(&mutex, NULL);
 
     //创建3个子线程
 
@@ -26,9 +37,11 @@ int main() {
     pthread_create(&tid2, NULL, sellticket, NULL);
     pthread_create(&tid3, NULL, sellticket, NULL);
 
-    pthread_detach(tid1);
-    pthread_detach(tid2);
-    pthread_detach(tid3);
+    pthread_join(tid1, NULL);
+    pthread_join(tid2, NULL);
+    pthread_join(tid3, NULL);
+
+    pthread_mutex_destroy(&mutex);
 
     pthread_exit(NULL);
     return 0;
