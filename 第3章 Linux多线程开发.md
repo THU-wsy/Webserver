@@ -76,9 +76,9 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
 ```
 - 作用：分别是初始化线程属性变量、释放线程属性的资源、获取线程分离的状态属性、设置线程分离的状态属性
 
-# 4. 互斥锁
+# 4. 锁
 
-## 4.1 互斥量API
+## 4.1 互斥锁
 
 ```c
 pthread_mutex_t //互斥量的类型
@@ -120,4 +120,26 @@ int pthread_mutex_trylock(pthread_mutex_t *mutex);
 int pthread_mutex_unlock(pthread_mutex_t *mutex);
 ```
 - 作用：解锁
+
+
+## 4.2 读写锁
+
+读写锁的特点：
+- 如果有线程读数据，则允许其他线程执行读操作，但不允许写操作。
+- 如果有线程写数据，则其他线程都不允许读、写操作。
+- 写是独占的，写的优先级高。
+
+```c
+#include <pthread.h>
+pthread_rwlock_t //读写锁的类型
+
+int pthread_rwlock_init(pthread_rwlock_t *restrict rwlock,
+           const pthread_rwlockattr_t *restrict attr);       
+int pthread_rwlock_destroy(pthread_rwlock_t *rwlock);
+int pthread_rwlock_rdlock(pthread_rwlock_t *rwlock);
+int pthread_rwlock_tryrdlock(pthread_rwlock_t *rwlock);
+int pthread_rwlock_wrlock(pthread_rwlock_t *rwlock);
+int pthread_rwlock_trywrlock(pthread_rwlock_t *rwlock);
+int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
+```
 
