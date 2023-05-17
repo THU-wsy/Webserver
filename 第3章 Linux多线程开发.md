@@ -143,3 +143,200 @@ int pthread_rwlock_trywrlock(pthread_rwlock_t *rwlock);
 int pthread_rwlock_unlock(pthread_rwlock_t *rwlock);
 ```
 
+# 5. 条件变量
+
+```c
+#include <pthread.h>
+pthread_cond_t //条件变量的类型
+       
+int pthread_cond_init(pthread_cond_t *restrict cond,
+           const pthread_condattr_t *restrict attr);
+int pthread_cond_destroy(pthread_cond_t *cond);
+int pthread_cond_wait(pthread_cond_t *restrict cond,
+           pthread_mutex_t *restrict mutex);
+int pthread_cond_timedwait(pthread_cond_t *restrict cond,
+           pthread_mutex_t *restrict mutex,
+           const struct timespec *restrict abstime);
+int pthread_cond_signal(pthread_cond_t *cond);
+int pthread_cond_broadcast(pthread_cond_t *cond);
+```
+
+# 6. 信号量
+
+```c
+#include <semaphore.h>
+sem_t //信号量的类型
+
+int sem_init(sem_t *sem, int pshared, unsigned int value);
+```
+- 作用：初始化信号量
+- 参数：sem是信号量的地址；pshared为0表示信号量用于线程间，不为0表示用于进程间；value表示要初始化的信号量的值
+
+```c
+#include <semaphore.h>
+
+int sem_destroy(sem_t *sem);
+```
+- 作用：释放信号量资源
+
+```c
+#include <semaphore.h>
+
+int sem_wait(sem_t *sem);
+int sem_trywait(sem_t *sem);
+int sem_timedwait(sem_t *sem, const struct timespec *abs_timeout);
+```
+- 作用：如果sem的值大于0，则调用wait后会让sem的值减一，然后立刻返回；如果sem的值等于0，则调用wait后会阻塞，直到sem的值大于0后再减一并返回。
+
+```c
+#include <semaphore.h>
+
+int sem_post(sem_t *sem);
+```
+- 作用：将sem的值加1，然后唤醒一个睡眠的线程。
+
+```c
+#include <semaphore.h>
+
+int sem_getvalue(sem_t *sem, int *sval);
+```
+- 作用：获取信号量的值
+
+生产者消费者问题(互斥锁+条件变量实现)：
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <stdlib.h>
+
+pthread_mutex_t mutex;
+pthread_cond_t cond_fill; //表示缓冲区满
+pthread_cond_t cond_empty; //表示缓冲区空
+struct Node {
+    int val;
+    struct Node* next;
+};
+struct Node* head = NULL;
+int size = 0; //缓冲区大小，假定最大为10
+
+void* producer(void* arg) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        while (size >= 10) 
+            pthread_cond_wait(&cond_fill, &mutex);
+        struct Node* newNode = (struct Node*) malloc(sizeof(struct Node));
+        newNode->next = head;
+        head = newNode;
+        newNode->val = rand() % 1000;
+        size++;
+        printf("%ld : Add newNode, val = %d, bufsize = %d\n", pthread_self(), newNode->val, size);
+        pthread_cond_signal(&cond_empty);
+        pthread_mutex_unlock(&mutex);
+    }
+    return NULL;
+}
+void* consumer(void* arg) {
+    while (1) {
+        pthread_mutex_lock(&mutex);
+        while (size == 0) 
+            pthread_cond_wait(&cond_empty, &mutex);
+        struct Node* tmp = head;
+        head = head->next;
+        size--;
+        printf("%ld : Delete Node, val = %d, bufsize = %d\n", pthread_self(), tmp->val, size);
+        free(tmp);
+        pthread_cond_signal(&cond_fill);
+        pthread_mutex_unlock(&mutex);
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cond_fill, NULL);
+    pthread_cond_init(&cond_empty, NULL);
+    // 5个生产者，5个消费者
+    pthread_t ptids[5], ctids[5];
+    for (int i = 0; i < 5; i++) {
+        pthread_create(&ptids[i], NULL, producer, NULL);
+        pthread_create(&ctids[i], NULL, consumer, NULL);
+    }
+    for (int i = 0; i < 5; i++) {
+        pthread_join(ptids[i], NULL);
+        pthread_join(ctids[i], NULL);
+    }
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond_fill);
+    pthread_cond_destroy(&cond_empty);
+    pthread_exit(NULL);
+    return 0;
+}
+```
+
+生产者消费者问题(信号量实现)：
+```c
+#include <stdio.h>
+#include <pthread.h>
+#include <stdlib.h>
+#include <semaphore.h>
+
+sem_t mutex;
+sem_t sem_fill; //表示空余缓冲区大小
+sem_t sem_empty; //表示已占缓冲区大小
+struct Node {
+    int val;
+    struct Node* next;
+};
+struct Node* head = NULL;
+int size = 0; //缓冲区大小，假定最大为10
+
+void* producer(void* arg) {
+    while (1) {
+        sem_wait(&sem_fill);
+        sem_wait(&mutex);
+        struct Node* newNode = (struct Node*) malloc(sizeof(struct Node));
+        newNode->next = head;
+        head = newNode;
+        newNode->val = rand() % 1000;
+        size++;
+        printf("%ld : Add newNode, val = %d, bufsize = %d\n", pthread_self(), newNode->val, size);
+        sem_post(&mutex);
+        sem_post(&sem_empty);
+    }
+    return NULL;
+}
+void* consumer(void* arg) {
+    while (1) {
+        sem_wait(&sem_empty);
+        sem_wait(&mutex);
+        struct Node* tmp = head;
+        head = head->next;
+        size--;
+        printf("%ld : Delete Node, val = %d, bufsize = %d\n", pthread_self(), tmp->val, size);
+        free(tmp);
+        sem_post(&mutex);
+        sem_post(&sem_fill);
+    }
+    return NULL;
+}
+
+int main() {
+    sem_init(&mutex, 0, 1);
+    sem_init(&sem_fill, 0, 10);
+    sem_init(&sem_empty, 0, 0);
+    // 5个生产者，5个消费者
+    pthread_t ptids[5], ctids[5];
+    for (int i = 0; i < 5; i++) {
+        pthread_create(&ptids[i], NULL, producer, NULL);
+        pthread_create(&ctids[i], NULL, consumer, NULL);
+    }
+    for (int i = 0; i < 5; i++) {
+        pthread_join(ptids[i], NULL);
+        pthread_join(ctids[i], NULL);
+    }
+    sem_destroy(&mutex);
+    sem_destroy(&sem_fill);
+    sem_destroy(&sem_empty);
+    pthread_exit(NULL);
+    return 0;
+}
+```

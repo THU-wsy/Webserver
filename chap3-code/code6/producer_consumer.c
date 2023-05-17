@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include <semaphore.h>
 
-pthread_mutex_t mutex;
-pthread_cond_t cond_fill; //表示缓冲区满
-pthread_cond_t cond_empty; //表示缓冲区空
+sem_t mutex;
+sem_t sem_fill; //表示空余缓冲区大小
+sem_t sem_empty; //表示已占缓冲区大小
 struct Node {
     int val;
     struct Node* next;
@@ -14,40 +15,38 @@ int size = 0; //缓冲区大小，假定最大为10
 
 void* producer(void* arg) {
     while (1) {
-        pthread_mutex_lock(&mutex);
-        while (size >= 10) 
-            pthread_cond_wait(&cond_fill, &mutex);
+        sem_wait(&sem_fill);
+        sem_wait(&mutex);
         struct Node* newNode = (struct Node*) malloc(sizeof(struct Node));
         newNode->next = head;
         head = newNode;
         newNode->val = rand() % 1000;
         size++;
         printf("%ld : Add newNode, val = %d, bufsize = %d\n", pthread_self(), newNode->val, size);
-        pthread_cond_signal(&cond_empty);
-        pthread_mutex_unlock(&mutex);
+        sem_post(&mutex);
+        sem_post(&sem_empty);
     }
     return NULL;
 }
 void* consumer(void* arg) {
     while (1) {
-        pthread_mutex_lock(&mutex);
-        while (size == 0) 
-            pthread_cond_wait(&cond_empty, &mutex);
+        sem_wait(&sem_empty);
+        sem_wait(&mutex);
         struct Node* tmp = head;
         head = head->next;
         size--;
         printf("%ld : Delete Node, val = %d, bufsize = %d\n", pthread_self(), tmp->val, size);
         free(tmp);
-        pthread_cond_signal(&cond_fill);
-        pthread_mutex_unlock(&mutex);
+        sem_post(&mutex);
+        sem_post(&sem_fill);
     }
     return NULL;
 }
 
 int main() {
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&cond_fill, NULL);
-    pthread_cond_init(&cond_empty, NULL);
+    sem_init(&mutex, 0, 1);
+    sem_init(&sem_fill, 0, 10);
+    sem_init(&sem_empty, 0, 0);
     // 5个生产者，5个消费者
     pthread_t ptids[5], ctids[5];
     for (int i = 0; i < 5; i++) {
@@ -58,9 +57,9 @@ int main() {
         pthread_join(ptids[i], NULL);
         pthread_join(ctids[i], NULL);
     }
-    pthread_mutex_destroy(&mutex);
-    pthread_cond_destroy(&cond_fill);
-    pthread_cond_destroy(&cond_empty);
+    sem_destroy(&mutex);
+    sem_destroy(&sem_fill);
+    sem_destroy(&sem_empty);
     pthread_exit(NULL);
     return 0;
 }
