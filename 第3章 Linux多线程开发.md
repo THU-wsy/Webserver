@@ -81,11 +81,8 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);
 ## 4.1 互斥锁
 
 ```c
-pthread_mutex_t //互斥量的类型
-```
-
-```c
 #include <pthread.h>
+pthread_mutex_t //互斥量的类型
 
 int pthread_mutex_init(pthread_mutex_t *restrict mutex,
            const pthread_mutexattr_t *restrict attr);
