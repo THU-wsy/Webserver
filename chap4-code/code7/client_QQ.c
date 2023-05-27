@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+char IP[16] = {0};
+
 int main() {
 
     // 1.创建socket
@@ -18,7 +20,9 @@ int main() {
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(9999);
-    inet_pton(AF_INET, "172.23.55.106", &server_addr.sin_addr.s_addr); //0.0.0.0
+    printf("请输入要连接的服务器的IP地址：\n");
+    scanf("%s", IP);
+    inet_pton(AF_INET, IP, &server_addr.sin_addr.s_addr); 
     int ret = connect(fd, (struct sockaddr*) &server_addr, sizeof(server_addr));
     if (ret == -1) {
         perror("connect");
@@ -37,10 +41,9 @@ int main() {
             printf("wsy : %s\n", recvBuf);
         } else if(num == 0) {
             // 表示服务器端断开连接
-            printf("server closed\n");
+            printf("Server closed!\n");
             break;
         }
-
     }
 
     // 关闭连接

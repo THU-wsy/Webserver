@@ -45,7 +45,7 @@ int main() {
     char clientIP[16];
     inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, clientIP, sizeof(clientIP));
     unsigned short clientPort = ntohs(client_addr.sin_port);
-    printf("client IP is %s, port is %d\n", clientIP, clientPort);
+    printf("Client IP is %s, port is %d\n", clientIP, clientPort);
 
     // 5. 通信
     char recvBuf[1024] = {0};
@@ -56,10 +56,10 @@ int main() {
             perror("read");
             exit(-1);
         } else if (num > 0) 
-            printf("server receives client's data : %s\n", recvBuf);
+            printf("Server receives client's data : %s\n", recvBuf);
         else if (num == 0) {
             //表示客户端断开连接
-            printf("client closed!\n");
+            printf("Client closed!\n");
             break;
         }
         

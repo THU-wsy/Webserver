@@ -45,13 +45,14 @@ int main() {
     char clientIP[16];
     inet_ntop(AF_INET, &client_addr.sin_addr.s_addr, clientIP, sizeof(clientIP));
     unsigned short clientPort = ntohs(client_addr.sin_port);
-    printf("client IP is %s, port is %d\n", clientIP, clientPort);
+    printf("Client IP is %s, port is %d\n", clientIP, clientPort);
 
     // 5. 通信
     char Buf[1024] = {0};
+    printf("注：输入QUIT结束聊天\n");
     while (1) {
         scanf("%s", Buf);
-        if (Buf[0] == 'q' && Buf[1] == 'u' && Buf[2] == 'i' && Buf[3] == 't')
+        if (Buf[0] == 'Q' && Buf[1] == 'U' && Buf[2] == 'I' && Buf[3] == 'T' && Buf[4] == 0)
             break;
         write(fd_client, Buf, strlen(Buf));
     }
