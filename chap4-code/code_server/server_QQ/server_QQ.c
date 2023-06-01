@@ -4,6 +4,34 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <pthread.h>
+
+struct sockInfo {
+    int fd; // 通信的文件描述符
+    struct sockaddr_in addr; 
+    pthread_t tid; //线程号
+} info;
+
+void* readdata(void* arg) {
+    struct sockInfo* infoptr = (struct sockInfo*) arg;
+    char recvBuf[1024] = {0};
+    while(1) {
+        memset(recvBuf, 0, sizeof(recvBuf));
+        int num = read(infoptr->fd, recvBuf, sizeof(recvBuf));
+        if(num == -1) {
+            perror("read");
+            exit(-1);
+        } else if(num > 0) {
+            printf("lrd : %s\n", recvBuf);
+        } else if(num == 0) {
+            // 表示客户端断开连接
+            printf("Client closed!\n");
+            break;
+        }
+    }
+
+    return NULL;
+}
 
 int main() {
     
@@ -50,10 +78,18 @@ int main() {
     // 5. 通信
     char Buf[1024] = {0};
     printf("注：输入QUIT结束聊天\n");
+    //主线程用于写数据，创建一个子线程用于读数据
+    struct sockInfo* infoptr = &info;
+    infoptr->fd = fd_client;
+    memcpy(&infoptr->addr, &client_addr, len);
+    pthread_create(&infoptr->tid, NULL, readdata, infoptr);
+    pthread_detach(infoptr->tid);
     while (1) {
         scanf("%s", Buf);
-        if (Buf[0] == 'Q' && Buf[1] == 'U' && Buf[2] == 'I' && Buf[3] == 'T' && Buf[4] == 0)
+        if (Buf[0] == 'Q' && Buf[1] == 'U' && Buf[2] == 'I' && Buf[3] == 'T' && Buf[4] == 0){
+            pthread_cancel(infoptr->tid);
             break;
+        }
         write(fd_client, Buf, strlen(Buf));
     }
 
