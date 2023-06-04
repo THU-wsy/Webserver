@@ -241,3 +241,95 @@ ssize_t write(int fd, const void *buf, size_t count); //写数据
 ssize_t read(int fd, void *buf, size_t count); //读数据
 ```
 
+```c
+int shutdown(int sockfd, int how);
+```
+- 功能：用于控制半关闭状态的API
+- 参数：sockfd是需要关闭的socket的描述符; how有以下几个值：
+  - SHUT_RD(0)：关闭sockfd上的读功能，此选项将不允许sockfd进行读操作。该套接字不再接收数据，任何当前在套接字接受缓冲区的数据将被无声的丢弃掉。
+  - SHUT_WR(1): 关闭sockfd的写功能，此选项将不允许sockfd进行写操作。进程不能再对此套接字进行写操作。
+  - SHUT_RDWR(2): 关闭sockfd的读写功能。相当于调用shutdown两次, 首先是以SHUT_RD, 然后以SHUT_WR。
+
+使用 close 中止一个连接，但它只是减少描述符的引用计数，并不直接关闭连接，只有当描述符的引用计数为 0 时才关闭连接。shutdown 不考虑描述符的引用计数，直接关闭描述符，也可选择中止一个方向的连接，只中止读或只中止写。
+
+注：如果有多个进程共享一个套接字，close 每被调用一次，计数减 1 ，直到计数为 0 时，也就是所用进程都调用了 close，套接字将被释放，即如果一个进程调用 close(sfd) 将不会影响到其它进程。但在多进程中如果一个进程调用了 shutdown(sfd, SHUT_RDWR) 后，其它的进程将无法进行通信。
+
+# 7. 端口复用
+
+端口复用最常用的用途是：防止服务器重启时之前绑定的端口还未释放；程序突然退出而系统没有释放端口。
+
+```c
+int setsockopt(int sockfd, int level, int optname,
+              const void *optval, socklen_t optlen);
+```
+- 功能：设置套接字的属性，比如端口复用。注意设置端口复用必须在服务器绑定端口之前。
+- 参数：
+  - sockfd: 套接字描述符
+  - level: 级别(SOL_SOCKET是端口复用的级别)
+  - optname: 选项名称，SO_REUSEADDR表示地址复用，SO_REUSEPORT表示端口复用
+  - optval: 指向端口复用的值(整型)，1表示可以复用，0表示不可以复用
+  - optlen: optval指向的参数大小
+
+例：使用端口复用
+```c
+int val = 1;
+setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
+```
+
+查看网络相关信息的命令：netstat, 参数：
+- -a: 显示所有的socket
+- -p: 显示正在使用socket的程序的名称
+- -n: 直接使用IP地址，而不通过域名服务器
+
+# 8. I/O多路复用
+
+I/O多路复用也称为I/O多路转接，能够使程序同时监听多个文件描述符，提高程序的性能，Linux下实现I/O多路复用的系统调用主要有select、poll和epoll。
+
+## BIO模型
+
+阻塞等待I/O的优点是阻塞进程不会占用CPU的宝贵时间，缺点是同一时刻只能处理一个操作，效率太低。为此采用多进程或者多线程来解决，每个线程/进程对应一个client，这样做也会有一定的缺点，比如线程或进程会占用系统资源，且线程或进程调度会消耗CPU资源。
+
+## NIO模型
+
+非阻塞I/O采用的是忙轮询的方式，即每隔一定时间进行询问，其优点是提高了程序的运行效率，缺点是需要占用更多的CPU和系统资源。如果有n个client，每次询问需要O(n)次系统调用，为此我们使用了I/O多路转接技术：第一种是select/poll，它委托内核进行询问，但只会返回读缓冲区内有数据的client数量；第二种是epoll，它同样委托内核进行询问，但会返回读缓冲区内有数据的client数量以及对应client的socket描述符。
+
+# 9. select
+
+思想：
+
+1. 首先要构造一个关于文件描述符的列表，将要监听的文件描述符添加到该列表中。
+2. 调用系统函数select，监听该列表中的文件描述符，直到这些描述符中的一个或者多个进行I/O操作时，该函数才返回。
+   - 这个函数是阻塞
+   - 函数对文件描述符的检测的操作是由内核完成的
+3. 在返回时，它会告诉进程有多少（哪些）描述符进行I/O操作。
+
+```c
+#include <sys/select.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int select(int nfds, fd_set *readfds, fd_set *writefds,
+          fd_set *exceptfds, struct timeval *timeout);
+```
+- 参数：
+  - nfds : 委托内核检测的最大文件描述符的值+1
+  - readfds : 要检测的文件描述符的读缓冲区的集合，委托内核检测哪些文件描述符的读缓冲区的属性，即检测该文件描述符的读缓冲区内是否有对方发过来的数据。fd_set是一个结构体，含有1024 bit，每一位对应一个文件描述符，即采用类似位图的方式。
+  - writefds : 要检测的文件描述符的写缓冲区的集合，委托内核检测哪些文件描述符的写缓冲区的属性，即检测哪些文件描述符的写缓冲区还可以写数据(即写缓冲区未满)
+  - exceptfds : 检测发生异常的文件描述符的集合
+  - timeout : 用于设置超时时间。结构体timeval有两个成员，其中long tv_sec表示秒，long tv_usec表示微秒。
+    - NULL表示永久阻塞，直到检测到了文件描述符的对应缓冲区有变化
+    - tv_sec = 0 且 tv_usec = 0 表示不阻塞
+    - tv_sec > 0 或 tv_usec > 0 表示阻塞对应的时间
+- 返回值：失败返回-1，成功则返回一个正整数n，表示检测的集合中有n个文件描述符发生了变化，如果返回0则表示超时时间到了且检测集合中的文件描述符没有变化(所以如果设置永久阻塞，就不可能返回0)
+
+```c
+// 将参数文件描述符fd对应的标志位设置为0
+void FD_CLR(int fd, fd_set *set);
+// 返回fd对应的标志位的值(1或0)
+int  FD_ISSET(int fd, fd_set *set);
+// 将参数文件描述符fd对应的标志位设置为1
+void FD_SET(int fd, fd_set *set);
+// fd_set一共有1024 bit, 全部初始化为0
+void FD_ZERO(fd_set *set);
+```
