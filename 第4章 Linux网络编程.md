@@ -333,3 +333,77 @@ void FD_SET(int fd, fd_set *set);
 // fd_set一共有1024 bit, 全部初始化为0
 void FD_ZERO(fd_set *set);
 ```
+
+select的缺点：
+- 每次调用select，都需要把fd集合从用户态拷贝到内核态，这个开销在fd很多时会很大
+- 每次调用select都需要在内核遍历传递进来的所有fd，这个开销在fd很多时也很大
+- select支持的文件描述符数量太小了，默认是1024
+- fds集合不能重用，每次都需要重置
+
+# 10. poll
+
+```c
+#include <poll.h>
+struct pollfd {
+    int   fd;      //委托内核检测的文件描述符
+    short events;  //委托内核检测文件描述符的事件
+    short revents; //文件描述符实际发生的事件
+};
+int poll(struct pollfd *fds, nfds_t nfds, int timeout);
+```
+- 参数：
+  - fds : 是一个struct pollfd结构体数组，这是一个需要检测的文件描述符的集合
+  - nfds : 是第一个参数数组中最后一个有效元素的下标+1
+  - timeout : 阻塞时长。0表示不阻塞; -1表示阻塞，当需要检测的文件描述符有变化时解除阻塞; 大于0表示阻塞的时长，单位是毫秒
+- 返回值：失败返回-1，成功则返回一个正整数n，表示检测的集合中有n个文件描述符发生了变化，如果返回0则表示超时时间到了且检测集合中的文件描述符没有变化(所以如果设置永久阻塞，就不可能返回0)
+
+![](zzimages/20230606160606.png)
+
+# 11. epoll
+
+![](zzimages/20230607203739.png)
+
+```c
+#include <sys/epoll.h>
+
+int epoll_create(int size);
+```
+- 功能：在内核中创建一个新的epoll实例，该实例中有两个比较重要的数据，一个是需要检测的文件描述符的信息(红黑树实现)，还有一个是就绪列表，存放检测到数据发生改变的文件描述符信息(双向链表实现)。
+- 参数：如今已经没有意义了，只需传入任意一个大于0的数即可
+- 返回值：失败返回-1，成功则返回一个文件描述符(大于0的值)，用于操作epoll实例
+
+```c
+typedef union epoll_data {
+    void        *ptr;
+    int          fd;
+    uint32_t     u32;
+    uint64_t     u64;
+} epoll_data_t;
+
+struct epoll_event {
+    uint32_t     events;      /* Epoll events */
+    epoll_data_t data;        /* User data variable */
+};
+//常见的epoll检测事件events有EPOLLIN、EPOLLOUT、EPOLLERR
+
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+```
+- 功能：对epoll实例进行管理，如添加文件描述符信息、删除信息、修改信息等
+- 参数：
+  - epfd：epoll实例对应的文件描述符
+  - op：操作，如EPOLL_CTL_ADD(添加)、EPOLL_CTL_MOD(修改)、EPOLL_CTL_DEL(删除)
+  - fd：要操作的文件描述符
+  - event：检测文件描述符的什么事件
+- 返回值：成功返回0，失败返回-1
+
+```c
+int epoll_wait(int epfd, struct epoll_event *events,
+              int maxevents, int timeout);
+```
+- 功能：检测文件描述符
+- 参数：
+  - epfd：epoll实例对应的文件描述符
+  - events：传出参数，保存了发生了变化的文件描述符的信息
+  - maxevents：第二个参数结构体数组的大小
+  - timeout：阻塞时长。0表示不阻塞; -1表示阻塞，当需要检测的文件描述符有变化时解除阻塞; 大于0表示阻塞的时长，单位是毫秒
+- 返回值：失败返回-1，成功则返回一个正整数n，表示检测的集合中有n个文件描述符发生了变化，如果返回0则表示超时时间到了且检测集合中的文件描述符没有变化(所以如果设置永久阻塞，就不可能返回0)
