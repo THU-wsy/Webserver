@@ -384,7 +384,7 @@ struct epoll_event {
     uint32_t     events;      /* Epoll events */
     epoll_data_t data;        /* User data variable */
 };
-//常见的epoll检测事件events有EPOLLIN、EPOLLOUT、EPOLLERR
+//常见的epoll检测事件events有EPOLLIN、EPOLLOUT、EPOLLERR、EPOLLET(用于设置ET模式)
 
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 ```
@@ -407,3 +407,96 @@ int epoll_wait(int epfd, struct epoll_event *events,
   - maxevents：第二个参数结构体数组的大小
   - timeout：阻塞时长。0表示不阻塞; -1表示阻塞，当需要检测的文件描述符有变化时解除阻塞; 大于0表示阻塞的时长，单位是毫秒
 - 返回值：失败返回-1，成功则返回一个正整数n，表示检测的集合中有n个文件描述符发生了变化，如果返回0则表示超时时间到了且检测集合中的文件描述符没有变化(所以如果设置永久阻塞，就不可能返回0)
+
+
+epoll的两种工作模式：
+
+- LT模式(水平触发)：LT(level-triggered)是默认的工作方式，并且同时支持block和no-block socket。在这种模式中，内核告诉你一个文件描述符是否就绪了，然后你可以对这个就绪的fd进行IO操作。如果你不作任何操作，内核还是会继续通知你的。例如，假设委托内核检测fd的读缓冲区，则epoll首次检测到读缓冲区有数据就会通知用户，如果用户不读数据或者只读了一部分数据，那么epoll会继续通知用户，直到读完了数据后才不会再通知。
+- ET模式(边缘触发)：ET(edge-triggered)是高速工作方式，只支持 no-block socket。在这种模式下，当描述符从未就绪变为就绪时，内核通过epoll告诉你，然后它会假设你知道文件描述符已经就绪，并且不会再为那个文件描述符发送更多的就绪通知，直到你做了某些操作导致那个文件描述符不再为就绪状态了。但是请注意，如果一直不对这个fd作IO操作，内核不会发送更多的通知。例如，假设委托内核检测fd的读缓冲区，则epoll首次检测到读缓冲区有数据就会通知用户，如果用户不读数据或者只读了一部分数据，那么epoll都不会继续通知用户。ET模式在很大程度上减少了epoll事件被重复触发的次数，因此效率要比LT模式高，epoll工作在ET模式的时候，必须使用非阻塞接口，以避免由于一个文件描述符的阻塞读/阻塞写操作把处理多个文件描述符的任务饿死。
+
+
+# 12. UDP通信
+
+![](zzimages/20230614163334.png)
+
+```c
+#include <sys/types.h>
+#include <sys/socket.h>
+
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+            const struct sockaddr *dest_addr, socklen_t addrlen);
+```
+- 参数：
+  - sockfd : 通信的fd
+  - buf : 要发送的数据
+  - len : 发送数据的长度
+  - flags : 一般传入0即可
+  - dest_addr : 通信的另外一端的地址信息
+  - addrlen : dest_addr所占的内存大小
+- 返回值：成功则返回发送的字节数，失败返回-1
+
+```c
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+            struct sockaddr *src_addr, socklen_t *addrlen);
+```
+- 参数：
+  - sockfd : 通信的fd
+  - buf : 接收数据的数组
+  - len : 数组的大小
+  - flags : 一般传入0即可
+  - src_addr : 用来保存另外一端的地址信息，不需要可以指定为NULL
+  - addrlen : src_addr所占的内存大小
+- 返回值：成功则返回接收的字节数，失败返回-1
+
+# 13. 广播
+
+向子网中多台计算机发送消息，并且子网中所有的计算机都可以接收到发送方发送的消息，每个广播消息都包含一个特殊的IP地址，这个IP中子网内主机标志部分的二进制全部为1。注意广播只能在局域网中使用，且客户端需要绑定服务器广播使用的端口，才可以接收到广播消息。
+
+我们可以用第7节介绍的函数setsockopt来设置一个套接字为广播属性：
+```c
+int val = 1;
+setsockopt(sfd, SOL_SOCKET, SO_BROADCAST, &val, sizeof(val));
+```
+
+# 14. 组播(多播)
+
+单播地址标识单个 IP 接口，广播地址标识某个子网的所有 IP 接口，多播地址标识一组 IP 接口。单播和广播是寻址方案的两个极端（要么单个要么全部），多播则意在两者之间提供一种折中方案。多播数据报只应该由对它感兴趣的接口接收，也就是说由运行相应多播会话应用系统的主机上的接口接收。另外，广播一般局限于局域网内使用，而多播则既可以用于局域网，也可以跨广域网使用。注意客户端需要加入多播组，才能接收到多播的数据。
+
+IP 多播通信必须依赖于 IP 多播地址，在 IPv4 中它的范围从 224.0.0.0 到 239.255.255.255，并被划分为局部链接多播地址、预留多播地址和管理权限多播地址三类:
+
+|IP地址|说明|
+|---|---|
+|224.0.0.0~224.0.0.255|局部链接多播地址：是为路由协议和其它用途保留的地址，路由器并不转发属于此范围的IP包|
+|224.0.1.0~224.0.1.255|预留多播地址：公用组播地址，可用于Internet；使用前需要申请|
+|224.0.2.0~238.255.255.255|预留多播地址：用户可用组播地址(临时组地址)，全网范围内有效|
+|239.0.0.0~239.255.255.255|本地管理组播地址，可供组织内部使用，类似于私有 IP 地址，不能用于 Internet，可限制多播范围|
+
+我们同样可以用setsockopt函数来设置组播
+```c
+int setsockopt(int sockfd, int level, int optname,
+              const void *optval, socklen_t optlen);
+```
+- 服务器设置多播的信息，外出接口：
+  - level : IPPROTO_IP
+  - optname : IP_MULTICAST_IF
+  - optval : struct in_addr\*
+- 客户端加入到多播组：
+  - level : IPPROTO_IP
+  - optname : IP_ADD_MEMBERSHIP
+  - optval : struct ip_mreq\*
+
+其中
+```c
+struct ip_mreq {
+    struct in_addr imr_multiaddr; // 组播的IP地址
+    struct in_addr imr_interface; // 本地的IP地址
+};
+
+typedef uint32_t in_addr_t;
+struct in_addr {
+    in_addr_t s_addr;
+};
+```
+
+# 15. 本地套接字
+
