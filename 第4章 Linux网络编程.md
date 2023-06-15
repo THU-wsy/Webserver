@@ -212,7 +212,7 @@ int listen(int sockfd, int backlog);
 - 功能：监听这个socket上的连接
 - 参数：
   - sockfd : 通过socket()函数得到的文件描述符
-  - backlog : 未连接的和已经连接的和的最大值，一般传入8即可，最大上限可在/proc/sys/net/core/somaxconn文件中查看
+  - backlog : 未连接的和已经连接的和的最大值，一般传入5即可，最大上限可在/proc/sys/net/core/somaxconn文件中查看
 - 返回值：成功返回0，失败返回-1
 
 ```c
@@ -500,3 +500,55 @@ struct in_addr {
 
 # 15. 本地套接字
 
+本地套接字用于本地进程间通信，实现流程与网络套接字类似，一般采用TCP通信流程。
+
+```c
+#include <sys/un.h>
+#define UNIX_PATH_MAX 108
+struct sockaddr_un {
+    sa_family_t sun_family; // 地址族协议AF_LOCAL
+    char sun_path[UNIX_PATH_MAX]; //套接字文件的路径, 这是一个伪文件, 大小永远=0
+};
+```
+
+服务器端流程：
+1.创建监听的套接字
+```c
+int lfd = socket(AF_LOCAL, SOCK_STREAM, 0);
+```
+2.监听的套接字绑定本地的套接字文件(server端)
+```c
+struct sockaddr_un addr;
+bind(lfd, (struct sockaddr *)&addr, sizeof(addr));
+// 绑定成功之后，指定的sun_path中的套接字文件会自动生成。
+```
+3.监听
+```c
+listen(lfd, 100);
+```
+4.等待并接受连接请求
+```c
+struct sockaddr_un cliaddr;
+int len = sizeof(cliaddr);
+int cfd = accept(lfd, (struct sockaddr *)&cliaddr, &len);
+```
+5.通信：接收数据read/recv，发送数据write/send
+6.关闭连接close()
+
+客户端流程：
+1.创建通信的套接字
+```c
+int fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+```
+2.绑定本地套接字文件(client端)
+```c
+struct sockaddr_un addr;
+bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+```
+3.连接服务器
+```c
+struct sockaddr_un seraddr;
+connect(fd, (struct sockaddr *)&seraddr, sizeof(seraddr));
+```
+4.通信：接收数据read/recv，发送数据write/send
+5.关闭连接close()
